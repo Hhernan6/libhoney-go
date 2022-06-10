@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/honeycombio/libhoney-go/marker"
 	"github.com/honeycombio/libhoney-go/transmission"
 	statsd "gopkg.in/alexcesaro/statsd.v2"
 )
@@ -129,6 +130,7 @@ type Config struct {
 	// STDOUT or to a file when developing locally.
 	Transmission transmission.Sender
 
+	Marker marker.Sender
 	// Configuration for the underlying sender. It is safe (and recommended) to
 	// leave these values at their defaults. You cannot change these values
 	// after calling Init()
@@ -244,7 +246,10 @@ func Init(conf Config) error {
 			Metrics:              sd,
 		}
 	}
+
 	clientConf.Transmission = t
+	clientConf.Marker = conf.Marker
+
 	var err error
 	dc, err = NewClient(clientConf)
 	return err
@@ -420,6 +425,20 @@ type Builder struct {
 	client *Client
 }
 
+// Marker is used to create templates for markers methods, specifying default fields
+type Marker struct {
+	// WriteKey, if set, overrides whatever is found in Config
+	WriteKey string
+	// Dataset, if set, overrides whatever is found in Config
+	Dataset string
+	// SampleRate, if set, overrides whatever is found in Config
+	SampleRate uint
+	// APIHost, if set, overrides whatever is found in Config
+	APIHost string
+	client  *Client
+	Logger  Logger
+}
+
 type fieldHolder struct {
 	data marshallableMap
 	lock sync.RWMutex
@@ -575,6 +594,10 @@ func Add(data interface{}) error {
 // global scope.
 func NewEvent() *Event {
 	return dc.NewEvent()
+}
+
+func NewMarker() *Marker {
+	return dc.NewMarker()
 }
 
 // NewBuilder creates a new event builder. The builder inherits any
@@ -865,6 +888,21 @@ func (e *Event) String() string {
 	return fmt.Sprintf("{WriteKey:%s Dataset:%s SampleRate:%d APIHost:%s Timestamp:%v fieldHolder:%+v sent:%t}", masked, e.Dataset, e.SampleRate, e.APIHost, e.Timestamp, e.fieldHolder.String(), e.sent)
 }
 
+func (m *Marker) SetMarker(data marker.CreateMarkerData) (marker.Response, error) {
+	markerData := &marker.Marker{
+		APIHost:  m.APIHost,
+		WriteKey: m.WriteKey,
+		Dataset:  m.Dataset,
+	}
+
+	response, err := m.client.marker.Create(markerData, data)
+	if err != nil {
+		return marker.Response{}, err
+	}
+
+	return response, nil
+}
+
 // returns true if the sample should be dropped
 func shouldDrop(rate uint) bool {
 	if rate <= 1 {
@@ -929,6 +967,18 @@ func (b *Builder) NewEvent() *Event {
 		e.AddField(dynField.name, dynField.fn())
 	}
 	return e
+}
+
+func (b *Builder) NewMarker() *Marker {
+	m := &Marker{
+		WriteKey:   b.WriteKey,
+		Dataset:    b.Dataset,
+		SampleRate: b.SampleRate,
+		APIHost:    b.APIHost,
+		client:     b.client,
+	}
+
+	return m
 }
 
 // Clone creates a new builder that inherits all traits of this builder and

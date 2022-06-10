@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/honeycombio/libhoney-go/marker"
 	"github.com/honeycombio/libhoney-go/transmission"
 )
 
@@ -16,6 +17,7 @@ import (
 // MockOutput transmission then inspect the events it would have sent.
 type Client struct {
 	transmission transmission.Sender
+	marker       marker.Sender
 	logger       Logger
 	builder      *Builder
 
@@ -56,7 +58,7 @@ type ClientConfig struct {
 	// unit tests, or use the transmission.WriterSender to write events to
 	// STDOUT or to a file when developing locally.
 	Transmission transmission.Sender
-
+	Marker       marker.Sender
 	// Logger defaults to nil and the SDK is silent. If you supply a logger here
 	// (or set it to &DefaultLogger{}), some debugging output will be emitted.
 	// Intended for human consumption during development to understand what the
@@ -99,6 +101,7 @@ func NewClient(conf ClientConfig) (*Client, error) {
 		return nil, err
 	}
 
+	c.marker = conf.Marker
 	c.builder = &Builder{
 		WriteKey:   conf.APIKey,
 		Dataset:    conf.Dataset,
@@ -211,6 +214,13 @@ func (c *Client) NewEvent() *Event {
 	c.ensureTransmission()
 	c.ensureBuilder()
 	return c.builder.NewEvent()
+}
+
+// NewMarker creates a new marker client with any Fields present in the
+// Client's scope.
+func (c *Client) NewMarker() *Marker {
+	c.ensureBuilder()
+	return c.builder.NewMarker()
 }
 
 // NewBuilder creates a new event builder. The builder inherits any Dynamic or
